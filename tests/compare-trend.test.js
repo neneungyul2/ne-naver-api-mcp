@@ -149,13 +149,15 @@ test("쇼핑은 category가 필수이고 요청에 category와 keyword가 들어
     compareBrandTrend({ ...base, source: "shopping", brands: brands("A") }, { api, cache: mkCache() }),
     /category/
   );
-  await compareBrandTrend(
+  const res = await compareBrandTrend(
     { ...base, source: "shopping", category: "CAT1", brands: [{ name: "A", aliases: ["에이"] }, brand("B")] },
     { api, cache: mkCache() }
   );
   assert.equal(api.calls[0].kind, "shopping");
   assert.equal(api.calls[0].req.category, "CAT1");
-  assert.deepEqual(api.calls[0].req.keyword[0], { name: "A", param: ["A", "에이"] });
+  // 실제 HUB는 키워드 그룹당 param을 1개만 허용한다 (2026-10-19 확인)
+  assert.deepEqual(api.calls[0].req.keyword[0], { name: "A", param: ["A"] });
+  assert.ok(res.warnings.some((w) => w.includes("A") && w.includes("별칭")));
 });
 
 test("쇼핑에 device를 주면 오류", async () => {

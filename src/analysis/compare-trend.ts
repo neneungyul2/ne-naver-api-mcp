@@ -34,6 +34,8 @@ export interface AnalysisApi {
 export const SEARCH_SLOTS_PER_CALL = 5;
 /** 쇼핑 인사이트 키워드 그룹 수. Task 1(실제 키 검증)에서 확인한 값으로 갱신한다. */
 export const SHOPPING_SLOTS_PER_CALL = 5;
+/** 쇼핑 인사이트는 키워드 그룹당 param을 1개만 받는다 (실제 호출로 확인). 별칭은 쓸 수 없다. */
+export const SHOPPING_KEYWORDS_PER_BRAND = 1;
 
 export interface CompareInput {
   brands: Brand[];
@@ -141,6 +143,17 @@ export async function compareBrandTrend(
   }
   checkBudget({ estimated, maxCalls, confirm: input.confirm });
 
+  if (input.source === "shopping") {
+    for (const b of input.brands) {
+      const dropped = brandKeywords(b).slice(SHOPPING_KEYWORDS_PER_BRAND);
+      if (dropped.length > 0) {
+        warnings.push(
+          `"${b.name}": 쇼핑 인사이트는 키워드 그룹당 1개만 지원해 별칭(${dropped.join(", ")})은 사용하지 않았습니다.`
+        );
+      }
+    }
+  }
+
   // 사용자가 승인한 호출 수(confirm이면 예상 호출 수까지)를 넘겨서 다시 계산하지 않는다
   const allowance = input.confirm === true ? Math.max(maxCalls, estimated) : maxCalls;
   const canSpend = () => counter.used - startUsed + estimated <= allowance;
@@ -155,7 +168,7 @@ export async function compareBrandTrend(
         category: input.category as string,
         keyword: batch.map((n) => ({
           name: n,
-          param: brandKeywords(byName.get(n) as Brand),
+          param: brandKeywords(byName.get(n) as Brand).slice(0, SHOPPING_KEYWORDS_PER_BRAND),
         })),
       };
       response = await cachedCall(cache, counter, "shoppingKeywords", req, () =>

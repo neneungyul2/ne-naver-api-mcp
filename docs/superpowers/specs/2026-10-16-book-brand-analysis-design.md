@@ -147,3 +147,5 @@
 | 쇼핑 키워드 그룹 최대 개수 | **5개** (6개는 HTTP 400 `.keyword -> should NOT have more than 5 items`) — `SHOPPING_SLOTS_PER_CALL = 5` 확정 |
 | 쇼핑 분야 코드 | `50005951` (도서 > 국어/외국어 > 영어 > 문법/독해/작문). `data/categories.json`에서 확인. 중등 교재는 `중학교 참고서 > 중1~3 문제집/자습서` 코드도 있다 |
 | 쇼핑 키워드 응답 | `results[].keyword` 에 키워드가 에코되고 `data`는 `[{period, ratio}]`. 이 분야에서 "그래머인사이드" 단독 호출은 `data`가 **빈 배열**이었다 (희소 데이터) → §9-5의 "데이터 없음/희소" 경고 경로가 실제로 쓰인다 |
+
+추가 확인 (Task 10, 종단 실행): 쇼핑 인사이트 키워드 그룹의 param은 **1개만** 허용된다 (2개 이상은 HTTP 400 .keyword[0].param -> should NOT have more than 1 items). 별칭을 쓸 수 없으므로 쇼핑 비교는 브랜드 이름 하나만 사용하고 (SHOPPING_KEYWORDS_PER_BRAND = 1) 버려진 별칭은 warnings로 알린다. 검색어 트렌드는 그룹당 키워드 20개까지 별칭 묶음이 가능하다.
