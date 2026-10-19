@@ -243,3 +243,30 @@ test("brand_mentions: 키워드가 20개를 넘는 브랜드는 dryRun이어도 
   );
   assert.equal(api.calls.length, 0);
 });
+
+test("brand_mentions: maxPostsPerBrand 기본값은 100이다", async () => {
+  const server = fakeServer();
+  registerAnalysisTools(server, fakeApi(), { cache: mkCache() });
+  const out = parse(
+    await server.tools.brand_mentions.handler({
+      brands: [{ name: "그래머인사이드" }],
+      sources: ["blog"],
+      dryRun: true,
+    })
+  );
+  assert.equal(out.estimatedCalls, 1);
+});
+
+test("brand_mentions: 표본이 잘린 구간의 월은 partial로 표시하고 비교 가능 시작일을 알려 준다", async () => {
+  const server = fakeServer();
+  registerAnalysisTools(server, truncatedApi(), { cache: mkCache() });
+  const out = parse(
+    await server.tools.brand_mentions.handler({
+      brands: [{ name: "그래머인사이드" }],
+      sources: ["blog"],
+    })
+  );
+  assert.equal(out.comparableFrom.blog, "2025-03-12");
+  assert.equal(out.monthly.find((r) => r.month === "2025-03").partial, true);
+  assert.equal(out.monthly.find((r) => r.month === "2025-04").partial, false);
+});

@@ -56,8 +56,8 @@ const MentionsShape = {
     .int()
     .min(1)
     .max(1000)
-    .default(300)
-    .describe("검색어당 수집할 글 수 (최대 1000)"),
+    .default(100)
+    .describe("검색어당 수집할 최근 글 수 (기본 100, 최대 1000). 최근 언급 경향을 보는 용도입니다."),
   queriesPerBrand: z
     .number()
     .int()
@@ -246,9 +246,22 @@ export function registerAnalysisTools(
         }
       }
 
+      // 표본이 잘린 소스는 브랜드마다 닿는 과거가 다르다. 가장 늦은 시작일 이전(그 달 포함)은 비교할 수 없다.
+      const comparableFrom: Partial<Record<MentionSource, string>> = {};
+      for (const t of apiTotals) {
+        if (!t.truncated || !t.oldestDate) continue;
+        const cur = comparableFrom[t.source];
+        if (!cur || t.oldestDate > cur) comparableFrom[t.source] = t.oldestDate;
+      }
+      const monthlyRows = monthly.map((r) => {
+        const from = comparableFrom[r.source];
+        return { ...r, partial: from ? r.month <= from.slice(0, 7) : false };
+      });
+
       const result = {
         dryRun: false,
-        monthly,
+        monthly: monthlyRows,
+        comparableFrom,
         undated,
         apiTotals,
         collected: posts.length,
@@ -267,8 +280,14 @@ export function registerAnalysisTools(
         const sheets: Sheet[] = [
           {
             name: "월별언급",
-            columns: ["월", "브랜드", "소스", "건수"],
-            rows: monthly.map((r) => [r.month, r.brand, r.source, r.count]),
+            columns: ["월", "브랜드", "소스", "건수", "부분집계"],
+            rows: monthlyRows.map((r) => [
+              r.month,
+              r.brand,
+              r.source,
+              r.count,
+              r.partial ? "Y" : "",
+            ]),
           },
           {
             name: "후보",
