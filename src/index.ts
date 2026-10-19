@@ -23,6 +23,8 @@ import {
 import { FindCategorySchema } from "./schemas/category.schemas.js";
 import { findCategoryHandler, clearCategoriesCache } from "./handlers/category.handlers.js";
 import { resolveCredentials } from "./config/credentials.js";
+import { registerAnalysisTools } from "./analysis/tools.js";
+import { applyToolFilter, parseToolAllowList } from "./analysis/tool-filter.js";
 
 // Configuration schema for programmatic server creation and stdio startup
 export const configSchema = z.object({
@@ -97,6 +99,8 @@ export function createNaverSearchServer({
     name: "naver-search",
     version: "1.0.49",
   });
+  // NAVER_TOOLS_ALLOW(쉼표 구분)가 있으면 목록에 있는 도구만 노출한다
+  applyToolFilter(server, parseToolAllowList(process.env.NAVER_TOOLS_ALLOW));
 
   // Initialize Naver client with config
   const credentials = resolveCredentials(config);
@@ -406,6 +410,9 @@ export function createNaverSearchServer({
       };
     }
   );
+
+  // 도서 브랜드 분석 도구 (brand_compare_trend, brand_mentions)
+  registerAnalysisTools(server, client);
 
   // Cache the server instance and config
   globalServerInstance = server;

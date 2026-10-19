@@ -103,6 +103,20 @@ openclaw skills install naver-search-mcp
 - **`datalab_shopping_keyword_by_gender`**: 키워드 성별 트렌드
 - **`datalab_shopping_keyword_by_age`**: 키워드 연령별 트렌드
 
+### 4. 도서 브랜드 분석 (이 포크에서 추가)
+브랜드는 `{ name, aliases[] }` 형식으로 넘깁니다 (별칭: 띄어쓰기/영문 표기 등). 모든 결과에는 `limitations`가 붙습니다.
+- **`brand_compare_trend`**: 여러 브랜드의 검색어 트렌드(`source: "search"`) 또는 쇼핑 클릭 추이(`source: "shopping"`, `category` 필요)를 기준 브랜드로 환산해 **한 척도의 상대 지수**로 비교합니다. 정밀도가 낮은 브랜드가 있으면 중간 규모 브랜드로 기준을 바꿔 한 번 재계산합니다.
+- **`brand_mentions`**: 블로그/카페글/웹문서에서 브랜드 언급 글을 수집해 월별로 집계(수집 표본 기준 근사치)하고, 함께 언급된 **후보 단어**와 예시 문장을 돌려줍니다. 후보가 브랜드인지는 직접 판단하세요. 카페글처럼 날짜가 없는 소스는 월별 집계에서 제외됩니다.
+
+공통 인자: `dryRun`(호출 없이 예상 호출 수만 계산), `maxCalls`(기본 30), `confirm`(상한 초과 시 진행), `exportAs`(xlsx와 CSV로 저장할 파일 이름).
+
+| 환경변수 | 설명 | 기본값 |
+|---|---|---|
+| `NAVER_EXPORT_DIR` | xlsx/CSV 저장 폴더 | `<작업 디렉터리>/exports` |
+| `NAVER_CACHE_DIR` | API 응답 캐시 폴더 | `<홈>/.naver-search-mcp/cache` |
+| `NAVER_CACHE_TTL_HOURS` | 캐시 유지 시간(시간) | `24` |
+| `NAVER_TOOLS_ALLOW` | 노출할 도구 이름 목록(쉼표 구분, 비우면 전체). 예: `brand_compare_trend,brand_mentions,find_category` | 전체 |
+
 ---
 
 ## License

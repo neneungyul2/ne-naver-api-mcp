@@ -42,3 +42,6 @@ coverage/
 # Reference folders
 ref/
 ef/ 
+# Brand analysis outputs
+exports/
+.cache/
