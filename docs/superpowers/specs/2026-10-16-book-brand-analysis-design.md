@@ -135,3 +135,15 @@
    - 브랜드명 키워드가 해당 분야에서 데이터를 거의 주지 않을 수 있다. 결과가 비었거나 지수가 지나치게 낮으면 오류로 처리하지 않고 "해당 분야에서 데이터 없음/희소" 경고와 함께 빈 결과를 반환한다. 분야 단위 데이터로 자동 대체하지는 않는다. 필요하면 사용자가 분야 단위 도구를 따로 호출한다.
 6. **언급 분석의 후보 출력 형식**
    - 후보 단어마다 전체 빈도, 브랜드별 공출현 빈도, 예시 문장(최대 3개), 출처 유형(블로그/카페)을 반환한다. 후보 개수는 기본 상위 30개다.
+
+## 10. §7 검증 결과 (2026-10-19, 실제 키로 14회 호출, `scripts/verify-hub.mjs`)
+
+| 항목 | 결과 |
+|---|---|
+| 쇼핑 인사이트 하위 경로 8종 (`/shopping/v1/categories`, `category/keywords`, `category/device`, `category/gender`, `category/age`, `category/keyword/device`, `category/keyword/gender`, `category/keyword/age`) | 모두 유효 (HTTP 200) |
+| `/search/v1/webkr`, `/search/v1/cafearticle` | 유효. 응답 구조는 블로그와 같다 (`lastBuildDate,total,start,display,items`) |
+| 블로그 `postdate` | `YYYYMMDD` 문자열 (예: `20261017`) — 구현의 가정이 맞았다 |
+| 카페글 / 웹문서 날짜 필드 | **없음** (카페: `title,link,description,cafename,cafeurl` / 웹: `title,link,description`). §9-3의 대체 동작(월별 집계는 블로그만)이 그대로 적용된다 |
+| 쇼핑 키워드 그룹 최대 개수 | **5개** (6개는 HTTP 400 `.keyword -> should NOT have more than 5 items`) — `SHOPPING_SLOTS_PER_CALL = 5` 확정 |
+| 쇼핑 분야 코드 | `50005951` (도서 > 국어/외국어 > 영어 > 문법/독해/작문). `data/categories.json`에서 확인. 중등 교재는 `중학교 참고서 > 중1~3 문제집/자습서` 코드도 있다 |
+| 쇼핑 키워드 응답 | `results[].keyword` 에 키워드가 에코되고 `data`는 `[{period, ratio}]`. 이 분야에서 "그래머인사이드" 단독 호출은 `data`가 **빈 배열**이었다 (희소 데이터) → §9-5의 "데이터 없음/희소" 경고 경로가 실제로 쓰인다 |
