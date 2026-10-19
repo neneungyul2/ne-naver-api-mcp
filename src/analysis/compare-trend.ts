@@ -36,6 +36,8 @@ export const SEARCH_SLOTS_PER_CALL = 5;
 export const SHOPPING_SLOTS_PER_CALL = 5;
 /** 쇼핑 인사이트는 키워드 그룹당 param을 1개만 받는다 (실제 호출로 확인). 별칭은 쓸 수 없다. */
 export const SHOPPING_KEYWORDS_PER_BRAND = 1;
+/** 이름에 데이터가 없을 때 쇼핑에서 별칭을 순서대로 시도하는 최대 횟수 */
+export const SHOPPING_ALIAS_TRIES = 2;
 
 export interface CompareInput {
   brands: Brand[];
@@ -116,7 +118,20 @@ export async function compareBrandTrend(
   const byName = new Map(input.brands.map((b) => [b.name, b]));
   const names = input.brands.map((b) => b.name);
   const estimated = estimateTrendCalls(names.length, slots);
-  const estimatedMax = names.length > slots ? estimated * 2 : estimated;
+  const aliasBrands =
+    input.source === "shopping"
+      ? input.brands.filter((b) => brandKeywords(b).length > SHOPPING_KEYWORDS_PER_BRAND)
+      : [];
+  const aliasRounds = aliasBrands.length
+    ? Math.min(
+        SHOPPING_ALIAS_TRIES,
+        Math.max(...aliasBrands.map((b) => brandKeywords(b).length - SHOPPING_KEYWORDS_PER_BRAND))
+      )
+    : 0;
+  const aliasCalls = aliasBrands.length
+    ? Math.ceil(aliasBrands.length / (slots - 1)) * aliasRounds
+    : 0;
+  const estimatedMax = (names.length > slots ? estimated * 2 : estimated) + aliasCalls;
   const maxCalls = input.maxCalls ?? DEFAULT_MAX_CALLS;
   const warnings: string[] = [];
   const firstAnchor = input.anchor ?? names[0];
@@ -148,7 +163,7 @@ export async function compareBrandTrend(
       const dropped = brandKeywords(b).slice(SHOPPING_KEYWORDS_PER_BRAND);
       if (dropped.length > 0) {
         warnings.push(
-          `"${b.name}": 쇼핑 인사이트는 키워드 그룹당 1개만 지원해 별칭(${dropped.join(", ")})은 사용하지 않았습니다.`
+          `"${b.name}": 쇼핑 인사이트는 키워드 그룹당 1개만 지원해 이름으로만 조회합니다. 별칭(${dropped.join(", ")})은 이름에 데이터가 없을 때만 순서대로 시도합니다.`
         );
       }
     }
@@ -158,7 +173,11 @@ export async function compareBrandTrend(
   const allowance = input.confirm === true ? Math.max(maxCalls, estimated) : maxCalls;
   const canSpend = () => counter.used - startUsed + estimated <= allowance;
 
-  const fetchBatch = async (batch: string[]): Promise<BatchResult> => {
+  // 쇼핑에서 브랜드별로 몇 번째 키워드를 쓸지 (기본 0 = 이름)
+  const fetchBatch = async (
+    batch: string[],
+    keywordIndex: Record<string, number> = {}
+  ): Promise<BatchResult> => {
     let response: DatalabShoppingResponse;
     if (input.source === "shopping") {
       const req: DatalabShoppingKeywordsRequest = {
@@ -166,10 +185,10 @@ export async function compareBrandTrend(
         endDate,
         timeUnit: input.timeUnit,
         category: input.category as string,
-        keyword: batch.map((n) => ({
-          name: n,
-          param: brandKeywords(byName.get(n) as Brand).slice(0, SHOPPING_KEYWORDS_PER_BRAND),
-        })),
+        keyword: batch.map((n) => {
+          const kws = brandKeywords(byName.get(n) as Brand);
+          return { name: n, param: [kws[keywordIndex[n] ?? 0] ?? kws[0]] };
+        }),
       };
       response = await cachedCall(cache, counter, "shoppingKeywords", req, () =>
         api.datalabShoppingKeywords(req)
@@ -213,6 +232,7 @@ export async function compareBrandTrend(
   let anchor = firstAnchor;
   let fetched = await fetchAll(anchor, names);
   let batches = fetched.batches;
+  let results = fetched.results;
   let scaled: ScaledSeries[];
   try {
     scaled = rescale(anchor, fetched.results);
@@ -228,12 +248,14 @@ export async function compareBrandTrend(
       anchor = best.name;
       fetched = await fetchAll(anchor, [anchor, ...names.filter((n) => n !== anchor)]);
       batches = fetched.batches;
-      scaled = rescale(anchor, fetched.results);
+      results = fetched.results;
+      scaled = rescale(anchor, results);
       warnings.push(
         `기준 브랜드 "${firstAnchor}"에 데이터가 없어 기준을 "${anchor}"로 바꿨습니다.`
       );
     } else if (!best || best.total === 0) {
-      scaled = rescale(anchor, [first]);
+      results = [first];
+      scaled = rescale(anchor, results);
       batches = [fetched.batches[0]];
       warnings.push(
         `"${firstAnchor}"가 속한 첫 묶음에 데이터가 없어 나머지 브랜드는 비교하지 못했습니다. anchor를 직접 지정해 다시 실행하세요.`
@@ -258,6 +280,7 @@ export async function compareBrandTrend(
             .sort((a, b) => (size.get(b) ?? 0) - (size.get(a) ?? 0));
           const next = await fetchAll(median, [median, ...others]);
           scaled = rescale(median, next.results);
+          results = next.results;
           batches = next.batches;
           anchor = median;
           reanchored = true;
@@ -270,6 +293,46 @@ export async function compareBrandTrend(
       warnings.push(
         "정밀도 낮은 브랜드가 있으나 호출 예산이 부족해 기준 브랜드 재선택을 생략했습니다."
       );
+    }
+  }
+
+  // 쇼핑: 이름에 데이터가 없는 브랜드는 별칭을 순서대로 시도한다 (키워드 그룹당 1개 제한 때문)
+  if (input.source === "shopping" && aliasBrands.length > 0) {
+    const isEmpty = (n: string) => {
+      const s = scaled.find((x) => x.brand === n);
+      return !s || maxOf(s) === 0;
+    };
+    const idx: Record<string, number> = {};
+    for (let round = 1; round <= SHOPPING_ALIAS_TRIES; round++) {
+      const targets = names.filter(
+        (n) => n !== anchor && isEmpty(n) && brandKeywords(byName.get(n) as Brand).length > round
+      );
+      if (targets.length === 0) break;
+      const need = Math.ceil(targets.length / (slots - 1));
+      if (counter.used - startUsed + need > allowance) {
+        warnings.push(
+          `쇼핑 별칭 시도: 호출 예산이 부족해 ${targets.map((n) => `"${n}"`).join(", ")}의 별칭을 시도하지 못했습니다.`
+        );
+        break;
+      }
+      for (const t of targets) idx[t] = round;
+      const retry: BatchResult[] = [];
+      for (let i = 0; i < targets.length; i += slots - 1) {
+        retry.push(await fetchBatch([anchor, ...targets.slice(i, i + slots - 1)], idx));
+      }
+      const kept = results.map((b) => {
+        const copy = { ...b };
+        for (const t of targets) delete copy[t];
+        return copy;
+      });
+      results = [...kept, ...retry];
+      scaled = rescale(anchor, results);
+    }
+    for (const [n, i] of Object.entries(idx)) {
+      if (!isEmpty(n)) {
+        const kw = brandKeywords(byName.get(n) as Brand)[i];
+        warnings.push(`"${n}": 이름에 데이터가 없어 별칭으로 조회했습니다: "${kw}"`);
+      }
     }
   }
 

@@ -269,3 +269,71 @@ test("키워드가 20개를 넘거나 이름이 비어 있으면 dryRun에서도
     /비어/
   );
 });
+
+// 쇼핑 인사이트처럼 키워드(param[0])로 데이터를 찾는 가짜 API
+function makeKeywordApi(worldByKeyword) {
+  const calls = [];
+  return {
+    calls,
+    async searchTrend() {
+      throw new Error("unused");
+    },
+    async search() {
+      throw new Error("unused");
+    },
+    async datalabShoppingKeywords(req) {
+      calls.push(req.keyword.map((k) => ({ name: k.name, kw: k.param[0] })));
+      const vols = req.keyword.map((k) => worldByKeyword[k.param[0]] ?? [0, 0]);
+      const max = Math.max(...vols.flat());
+      return {
+        results: req.keyword.map((k, i) => ({
+          title: k.name,
+          data: vols[i].map((v, j) => ({ period: periods[j], ratio: max ? (v / max) * 100 : 0 })),
+        })),
+      };
+    },
+  };
+}
+
+const shop = { ...base, source: "shopping", category: "CAT1" };
+const bigB = { name: "천일문 중등 그래머", aliases: ["천일문", "천일문중등그래머"] };
+
+test("쇼핑에서 이름에 데이터가 없으면 별칭을 순서대로 시도한다", async () => {
+  const api = makeKeywordApi({ A: [100, 100], 천일문: [40, 40] });
+  const res = await compareBrandTrend({ ...shop, brands: [brand("A"), bigB] }, { api, cache: mkCache() });
+  assert.equal(api.calls.length, 2);
+  assert.deepEqual(api.calls[1], [{ name: "A", kw: "A" }, { name: "천일문 중등 그래머", kw: "천일문" }]);
+  assert.ok(Math.abs(ratios(res, "천일문 중등 그래머")[0] - 40) < 1e-9);
+  assert.ok(res.warnings.some((w) => w.includes("천일문") && w.includes("별칭으로 조회")));
+  assert.equal(res.callsUsed, 2);
+});
+
+test("첫 별칭도 비면 다음 별칭까지 시도하고 최대 시도 수를 넘지 않는다", async () => {
+  const api = makeKeywordApi({ A: [100, 100], 천일문중등그래머: [30, 30] });
+  const res = await compareBrandTrend({ ...shop, brands: [brand("A"), bigB] }, { api, cache: mkCache() });
+  assert.equal(api.calls.length, 3);
+  assert.ok(Math.abs(ratios(res, "천일문 중등 그래머")[0] - 30) < 1e-9);
+
+  const api2 = makeKeywordApi({ A: [100, 100] });
+  const res2 = await compareBrandTrend({ ...shop, brands: [brand("A"), bigB] }, { api: api2, cache: mkCache() });
+  assert.equal(api2.calls.length, 3);
+  assert.ok(res2.warnings.some((w) => w.includes("천일문 중등 그래머") && w.includes("데이터 없음")));
+});
+
+test("모든 브랜드에 데이터가 있으면 별칭을 시도하지 않는다", async () => {
+  const api = makeKeywordApi({ A: [100, 100], "천일문 중등 그래머": [50, 50], 천일문: [99, 99] });
+  const res = await compareBrandTrend({ ...shop, brands: [brand("A"), bigB] }, { api, cache: mkCache() });
+  assert.equal(api.calls.length, 1);
+  assert.ok(Math.abs(ratios(res, "천일문 중등 그래머")[0] - 50) < 1e-9);
+});
+
+test("별칭 재시도는 승인한 호출 예산을 넘지 않는다", async () => {
+  const api = makeKeywordApi({ A: [100, 100], 천일문: [40, 40] });
+  const res = await compareBrandTrend(
+    { ...shop, brands: [brand("A"), bigB], maxCalls: 1 },
+    { api, cache: mkCache() }
+  );
+  assert.equal(api.calls.length, 1);
+  assert.ok(res.warnings.some((w) => w.includes("별칭") && w.includes("예산")));
+  assert.ok(res.estimatedCallsMax >= 3);
+});
