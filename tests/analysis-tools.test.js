@@ -270,3 +270,49 @@ test("brand_mentions: 표본이 잘린 구간의 월은 partial로 표시하고 
   assert.equal(out.monthly.find((r) => r.month === "2025-03").partial, true);
   assert.equal(out.monthly.find((r) => r.month === "2025-04").partial, false);
 });
+
+// 기준 검색어("교재일반")에는 일반 단어만, 브랜드 검색에는 브랜드 글을 돌려주는 가짜 API
+function baselineApi() {
+  const queries = [];
+  return {
+    queries,
+    async search(type, params) {
+      queries.push(params.query);
+      const items =
+        params.query === "교재일반"
+          ? Array.from({ length: 4 }, (_, i) => ({
+              title: `문법 영어 정리 ${i}`,
+              description: "",
+              link: `https://base/${i}`,
+              postdate: "20250301",
+            }))
+          : [
+              { title: "그래머인사이드 문법 쎄듀", description: "", link: "https://b/1", postdate: "20250312" },
+              { title: "그래머인사이드 문법 쎄듀 후기글", description: "", link: "https://b/2", postdate: "20250313" },
+            ];
+      return { total: items.length, items };
+    },
+  };
+}
+
+test("brand_mentions: baselineQuery를 주면 일반 단어를 후보에서 빼고 호출 수에 포함한다", async () => {
+  const server = fakeServer();
+  const api = baselineApi();
+  registerAnalysisTools(server, api, { cache: mkCache() });
+  const input = {
+    brands: [{ name: "그래머인사이드" }],
+    sources: ["blog"],
+    baselineQuery: "교재일반",
+  };
+  const dry = parse(await server.tools.brand_mentions.handler({ ...input, dryRun: true }));
+  assert.equal(dry.estimatedCalls, 2);
+  assert.equal(api.queries.length, 0);
+
+  const out = parse(await server.tools.brand_mentions.handler(input));
+  assert.ok(api.queries.includes("교재일반"));
+  assert.equal(out.callsUsed, 2);
+  const terms = out.candidates.map((c) => c.term);
+  assert.ok(terms.includes("쎄듀"));
+  assert.equal(terms.includes("문법"), false);
+  assert.equal(out.baselineCollected, 4);
+});

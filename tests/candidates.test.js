@@ -82,3 +82,49 @@ test("출처 유형을 모은다", () => {
   );
   assert.deepEqual(cands.find((c) => c.term === "쎄듀").sources.sort(), ["blog", "cafearticle"]);
 });
+
+const bp = (title, i) => ({ source: "blog", title, description: "", link: `b${i}` });
+
+test("기준 검색 결과에서 흔한 단어(일반 단어)는 후보에서 뺀다", () => {
+  const kept = [
+    kp({ title: "그래머인사이드 문법 쎄듀 교재", link: "1" }),
+    kp({ title: "그래머인사이드 문법 쎄듀 후기글", link: "2" }),
+    kp({ title: "그래머인사이드 문법 능률 비교", link: "3" }),
+  ];
+  const baseline = [
+    ...Array.from({ length: 8 }, (_, i) => bp(`중등 문법 정리 ${i}`, i)),
+    bp("쎄듀 소개", 8),
+    bp("다른 글", 9),
+  ];
+  const cands = extractCandidates(kept, [A], { baseline });
+  const terms = cands.map((c) => c.term);
+  assert.equal(terms.includes("문법"), false);
+  const c = cands.find((x) => x.term === "쎄듀");
+  assert.equal(c.total, 2);
+  assert.ok(Math.abs(c.baselineRate - 0.1) < 1e-9);
+  assert.ok(c.lift > 1);
+});
+
+test("기준 검색이 없으면 baselineRate/lift가 없다", () => {
+  const cands = extractCandidates([kp({ title: "그래머인사이드 쎄듀", link: "1" })], [A]);
+  assert.equal(cands[0].baselineRate, undefined);
+  assert.equal(cands[0].lift, undefined);
+});
+
+test("genericRate를 조절할 수 있다", () => {
+  const kept = [kp({ title: "그래머인사이드 쎄듀", link: "1" })];
+  const baseline = [bp("쎄듀 소개", 0), ...Array.from({ length: 9 }, (_, i) => bp(`기타 ${i}`, i + 1))];
+  assert.equal(extractCandidates(kept, [A], { baseline, genericRate: 0.05 }).length, 0);
+  assert.equal(extractCandidates(kept, [A], { baseline, genericRate: 0.5 }).length, 1);
+});
+
+test("브랜드명에 조사가 붙은 토큰은 후보에서 제외하되 복합어는 남긴다", () => {
+  const cands = extractCandidates(
+    [kp({ title: "그래머인사이드는 그래머인사이드를 그래머인사이드워크북 비교", link: "1" })],
+    [A]
+  );
+  const terms = cands.map((c) => c.term);
+  assert.equal(terms.includes("그래머인사이드는"), false);
+  assert.equal(terms.includes("그래머인사이드를"), false);
+  assert.ok(terms.includes("그래머인사이드워크북"));
+});

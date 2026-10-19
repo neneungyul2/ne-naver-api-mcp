@@ -66,6 +66,19 @@ const MentionsShape = {
     .default(1)
     .describe("브랜드당 사용할 검색어 수 (이름, 별칭 순)"),
   topCandidates: z.number().int().min(1).max(200).default(30),
+  baselineQuery: z
+    .string()
+    .optional()
+    .describe(
+      "해당 카테고리의 일반 검색어 (예: '중등 영어 문법 교재'). 주면 이 검색 결과에서 흔한 단어(문법, 영어 등)를 동시 언급 후보에서 뺍니다. 호출이 소스당 1회 이상 늘어납니다."
+    ),
+  baselinePosts: z
+    .number()
+    .int()
+    .min(10)
+    .max(300)
+    .default(100)
+    .describe("기준 검색에서 수집할 글 수 (기본 100)"),
   maxCalls: z.number().int().positive().optional(),
   confirm: z.boolean().optional(),
   dryRun: z.boolean().optional(),
@@ -164,12 +177,16 @@ export function registerAnalysisTools(
     async (args: any) => {
       const input = z.object(MentionsShape).parse(args);
       validateBrands(input.brands);
-      const estimated = estimateMentionCalls(
-        input.brands,
-        input.sources,
-        input.queriesPerBrand,
-        input.maxPostsPerBrand
-      );
+      const baselineCalls = input.baselineQuery
+        ? input.sources.length * Math.ceil(input.baselinePosts / 100)
+        : 0;
+      const estimated =
+        estimateMentionCalls(
+          input.brands,
+          input.sources,
+          input.queriesPerBrand,
+          input.maxPostsPerBrand
+        ) + baselineCalls;
       const maxCalls = input.maxCalls ?? DEFAULT_MAX_CALLS;
       const limitations = MENTION_LIMITATIONS;
       if (input.dryRun) {
@@ -235,7 +252,30 @@ export function registerAnalysisTools(
 
       const { kept, excluded } = filterByBrands(posts, input.brands);
       const { rows: monthly, undated } = monthlyCounts(kept);
-      const candidates = extractCandidates(kept, input.brands, { top: input.topCandidates });
+      // 기준 검색: 카테고리 일반 검색 결과에서 흔한 단어를 후보에서 거른다
+      const baseline: Post[] = [];
+      if (input.baselineQuery) {
+        const seenBase = new Set<string>();
+        for (const source of input.sources) {
+          const { posts: got } = await collectPosts(
+            api,
+            source,
+            input.baselineQuery,
+            input.baselinePosts,
+            ctx
+          );
+          for (const p of got) {
+            const key = `${p.source}\u0000${p.link}`;
+            if (seenBase.has(key)) continue;
+            seenBase.add(key);
+            baseline.push(p);
+          }
+        }
+      }
+      const candidates = extractCandidates(kept, input.brands, {
+        top: input.topCandidates,
+        ...(baseline.length > 0 ? { baseline } : {}),
+      });
 
       for (const source of input.sources) {
         const mine = kept.filter((p) => p.source === source);
@@ -268,6 +308,7 @@ export function registerAnalysisTools(
         kept: kept.length,
         excluded,
         candidates,
+        baselineCollected: baseline.length,
         callsUsed: ctx.counter.used,
         cacheHits: ctx.counter.hit,
         estimatedCalls: estimated,
