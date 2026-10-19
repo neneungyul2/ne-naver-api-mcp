@@ -11,7 +11,7 @@ export function sanitizeBaseName(name: string): string {
   const s = name
     .trim()
     .replace(/^[. ]+|[. ]+$/g, "")
-    .replace(/[\/:*?"<>|\u0000-\u001f]/g, "_")
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_")
     .replace(/\.{2,}/g, "_");
   return !s || /^_+$/.test(s) ? "export" : s;
 }
@@ -23,7 +23,7 @@ export function neutralizeFormula(v: Cell): Cell {
 }
 
 function sheetTitle(name: string): string {
-  const s = name.replace(/[\[\]*?:\/]/g, "_").trim().slice(0, 31);
+  const s = name.replace(/[\[\]*?:\\/]/g, "_").trim().slice(0, 31);
   return s || "Sheet";
 }
 

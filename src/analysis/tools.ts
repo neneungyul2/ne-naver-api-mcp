@@ -1,7 +1,7 @@
 import path from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { BrandSchema, brandKeywords } from "./brand.js";
+import { BrandSchema, brandKeywords, validateBrands } from "./brand.js";
 import { DEFAULT_MAX_CALLS, checkBudget } from "./budget.js";
 import { AnalysisApi, CompareResult, compareBrandTrend } from "./compare-trend.js";
 import { extractCandidates } from "./candidates.js";
@@ -14,7 +14,7 @@ import {
   monthlyCounts,
 } from "./mentions.js";
 import { CallCounter, FileCache, defaultCache } from "../cache/file-cache.js";
-import { Sheet, exportSheets } from "../export/export.js";
+import { ExportResult, Sheet, exportSheets } from "../export/export.js";
 
 const MentionSourceSchema = z.enum(["blog", "cafearticle", "webkr"]);
 
@@ -92,6 +92,18 @@ const asText = (value: unknown) => ({
 
 const round = (n: number) => Math.round(n * 10000) / 10000;
 
+/** 내보내기 실패가 이미 비용을 치른 분석 결과를 버리지 않도록 오류를 값으로 돌려준다. */
+async function tryExport(
+  sheets: Sheet[],
+  baseName: string
+): Promise<{ exported?: ExportResult; exportError?: string }> {
+  try {
+    return { exported: await exportSheets(sheets, { dir: exportDir(), baseName }) };
+  } catch (e) {
+    return { exportError: `내보내기 실패: ${(e as Error).message}` };
+  }
+}
+
 function trendSheets(res: CompareResult): Sheet[] {
   const periods = [
     ...new Set(res.series.flatMap((s) => s.points.map((p) => p.period))),
@@ -130,14 +142,15 @@ export function registerAnalysisTools(
     async (args: any) => {
       const input = z.object(CompareShape).parse(args);
       const result = await compareBrandTrend(input, { api, cache: cacheOf() });
-      const exported =
+      const ex =
         input.exportAs && !result.dryRun
-          ? await exportSheets(trendSheets(result), {
-              dir: exportDir(),
-              baseName: input.exportAs,
-            })
-          : undefined;
-      return asText({ ...result, ...(exported ? { exported } : {}) });
+          ? await tryExport(trendSheets(result), input.exportAs)
+          : {};
+      return asText({
+        ...result,
+        ...(ex.exportError ? { warnings: [...result.warnings, ex.exportError] } : {}),
+        ...ex,
+      });
     }
   );
 
@@ -150,6 +163,7 @@ export function registerAnalysisTools(
     },
     async (args: any) => {
       const input = z.object(MentionsShape).parse(args);
+      validateBrands(input.brands);
       const estimated = estimateMentionCalls(
         input.brands,
         input.sources,
@@ -172,11 +186,15 @@ export function registerAnalysisTools(
       const ctx = { cache: cacheOf(), counter: new CallCounter() };
       const seen = new Set<string>();
       const posts: Post[] = [];
+      const warnings: string[] = [];
       const apiTotals: Array<{
         source: MentionSource;
         brand: string;
         query: string;
         total: number;
+        collected: number;
+        oldestDate?: string;
+        truncated: boolean;
       }> = [];
       for (const source of input.sources) {
         for (const brand of input.brands) {
@@ -188,7 +206,23 @@ export function registerAnalysisTools(
               input.maxPostsPerBrand,
               ctx
             );
-            apiTotals.push({ source, brand: brand.name, query, total });
+            const dates = got.map((p) => p.date).filter((d): d is string => !!d).sort();
+            const oldestDate = dates[0];
+            const truncated = total > got.length;
+            apiTotals.push({
+              source,
+              brand: brand.name,
+              query,
+              total,
+              collected: got.length,
+              ...(oldestDate ? { oldestDate } : {}),
+              truncated,
+            });
+            if (truncated && oldestDate) {
+              warnings.push(
+                `${SOURCE_LABEL[source]} "${brand.name}" 검색어 "${query}": 전체 ${total}건 중 최근 ${got.length}건만 수집했습니다 (가장 오래된 글 ${oldestDate}). 그 이전 월의 집계는 불완전합니다.`
+              );
+            }
             for (const p of got) {
               const key = `${p.source}\u0000${p.link}`;
               if (seen.has(key)) continue;
@@ -203,7 +237,6 @@ export function registerAnalysisTools(
       const { rows: monthly, undated } = monthlyCounts(kept);
       const candidates = extractCandidates(kept, input.brands, { top: input.topCandidates });
 
-      const warnings: string[] = [];
       for (const source of input.sources) {
         const mine = kept.filter((p) => p.source === source);
         if (mine.length > 0 && mine.every((p) => !p.date)) {
@@ -229,7 +262,7 @@ export function registerAnalysisTools(
         limitations,
       };
 
-      let exported;
+      let ex: { exported?: ExportResult; exportError?: string } = {};
       if (input.exportAs) {
         const sheets: Sheet[] = [
           {
@@ -256,12 +289,13 @@ export function registerAnalysisTools(
             rows: [...limitations, ...warnings].map((t) => [t]),
           },
         ];
-        exported = await exportSheets(sheets, {
-          dir: exportDir(),
-          baseName: input.exportAs,
-        });
+        ex = await tryExport(sheets, input.exportAs);
       }
-      return asText({ ...result, ...(exported ? { exported } : {}) });
+      return asText({
+        ...result,
+        ...(ex.exportError ? { warnings: [...warnings, ex.exportError] } : {}),
+        ...ex,
+      });
     }
   );
 }

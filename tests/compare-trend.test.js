@@ -196,3 +196,74 @@ test("결과에 환경변수의 비밀 값이 섞이지 않는다", async () => 
     delete process.env.NCP_APIGW_API_KEY;
   }
 });
+
+test("첫 브랜드에 데이터가 없어도 5개 이하면 오류 없이 경고한다", async () => {
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B") },
+    { api: makeApi({ A: [0, 0], B: [10, 20] }), cache: mkCache() }
+  );
+  assert.deepEqual(ratios(res, "B"), [50, 100]);
+  assert.ok(res.warnings.some((w) => w.includes("A") && w.includes("데이터 없음")));
+});
+
+test("기준 브랜드에 데이터가 없고 배치가 여럿이면 가장 큰 브랜드로 기준을 바꿔 계속한다", async () => {
+  const world = { A: [0, 0], B: [100, 100], C: [50, 50], D: [20, 20], E: [10, 10], F: [5, 5] };
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B", "C", "D", "E", "F") },
+    { api: makeApi(world), cache: mkCache() }
+  );
+  assert.equal(res.anchor, "B");
+  assert.ok(Math.abs(ratios(res, "F")[0] - 5) < 1e-9);
+  assert.ok(res.warnings.some((w) => w.includes("A") && w.includes("기준")));
+});
+
+test("재기준은 합계가 0인 브랜드를 고르지 않는다", async () => {
+  const world = { A: [10000, 10000], B: [0, 0], C: [0, 0], D: [0, 0], E: [50, 50], F: [2, 2] };
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B", "C", "D", "E", "F") },
+    { api: makeApi(world), cache: mkCache() }
+  );
+  assert.equal(res.reanchored, true);
+  assert.equal(res.anchor, "E");
+  assert.ok(res.warnings.some((w) => w.includes("B") && w.includes("데이터 없음")));
+});
+
+test("confirm이어도 재기준으로 승인한 호출 수를 넘기지 않고 최대 호출 수를 알려 준다", async () => {
+  const api = makeApi(world2);
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B", "C", "D", "E", "F"), maxCalls: 1, confirm: true },
+    { api, cache: mkCache() }
+  );
+  assert.equal(res.reanchored, false);
+  assert.equal(res.callsUsed, 2);
+  assert.equal(res.estimatedCalls, 2);
+  assert.equal(res.estimatedCallsMax, 4);
+  assert.ok(res.warnings.some((w) => w.includes("예산")));
+});
+
+test("나중 배치의 기준 지수가 너무 작으면 그 배치 브랜드에 정밀도 경고를 낸다", async () => {
+  const world = { A: [100, 100], B: [100, 100], C: [100, 100], D: [100, 100], E: [100, 100], F: [1e6, 1e6] };
+  const res = await compareBrandTrend(
+    { ...base, anchor: "A", brands: brands("A", "B", "C", "D", "E", "F") },
+    { api: makeApi(world), cache: mkCache() }
+  );
+  assert.ok(res.warnings.some((w) => w.includes("F") && w.includes("정밀도")));
+});
+
+test("키워드가 20개를 넘거나 이름이 비어 있으면 dryRun에서도 먼저 오류", async () => {
+  const aliases = Array.from({ length: 20 }, (_, i) => `별칭${i}`);
+  await assert.rejects(
+    compareBrandTrend(
+      { ...base, brands: [{ name: "A", aliases }], dryRun: true },
+      { api: makeApi({ A: [1, 1] }), cache: mkCache() }
+    ),
+    /최대 20개/
+  );
+  await assert.rejects(
+    compareBrandTrend(
+      { ...base, brands: [{ name: " ", aliases: [] }], dryRun: true },
+      { api: makeApi({ A: [1, 1] }), cache: mkCache() }
+    ),
+    /비어/
+  );
+});

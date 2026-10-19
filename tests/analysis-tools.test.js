@@ -163,3 +163,83 @@ test("brand_mentions: 예상 호출이 상한을 넘으면 던진다", async () 
     /confirm/
   );
 });
+
+// total이 수집 건수보다 큰 가짜 검색 API (최근 글만 담긴 표본)
+function truncatedApi() {
+  return {
+    async search(type) {
+      return {
+        total: 250,
+        items: [
+          { title: "그래머인사이드 신간", description: "a", link: `https://${type}/1`, postdate: "20250401" },
+          { title: "그래머인사이드 후기", description: "b", link: `https://${type}/2`, postdate: "20250312" },
+        ],
+      };
+    },
+  };
+}
+
+test("brand_mentions: 표본이 최근 글에 한정되면 가장 오래된 날짜와 함께 경고한다", async () => {
+  const server = fakeServer();
+  registerAnalysisTools(server, truncatedApi(), { cache: mkCache() });
+  const out = parse(
+    await server.tools.brand_mentions.handler({
+      brands: [{ name: "그래머인사이드" }],
+      sources: ["blog"],
+    })
+  );
+  assert.equal(out.apiTotals[0].collected, 2);
+  assert.equal(out.apiTotals[0].oldestDate, "2025-03-12");
+  assert.equal(out.apiTotals[0].truncated, true);
+  assert.ok(
+    out.warnings.some((w) => w.includes("250") && w.includes("2025-03-12") && w.includes("불완전"))
+  );
+});
+
+test("내보내기가 실패해도 분석 결과는 돌려주고 경고한다", async () => {
+  const blocker = path.join(tmp(), "file.txt");
+  fs.writeFileSync(blocker, "x");
+  process.env.NAVER_EXPORT_DIR = path.join(blocker, "sub");
+  try {
+    const server = fakeServer();
+    registerAnalysisTools(server, fakeApi(), { cache: mkCache() });
+    const compare = parse(
+      await server.tools.brand_compare_trend.handler({
+        brands: [{ name: "A" }, { name: "B" }],
+        source: "search",
+        startDate: "2025-01-01",
+        endDate: "2025-02-28",
+        timeUnit: "month",
+        exportAs: "x",
+      })
+    );
+    assert.ok(compare.series.length === 2);
+    assert.ok(compare.warnings.some((w) => w.includes("내보내기 실패")));
+    assert.ok(compare.exportError);
+    assert.equal(compare.exported, undefined);
+
+    const mentions = parse(
+      await server.tools.brand_mentions.handler({
+        brands: [{ name: "그래머인사이드" }],
+        sources: ["blog"],
+        exportAs: "x",
+      })
+    );
+    assert.ok(mentions.kept > 0);
+    assert.ok(mentions.warnings.some((w) => w.includes("내보내기 실패")));
+  } finally {
+    delete process.env.NAVER_EXPORT_DIR;
+  }
+});
+
+test("brand_mentions: 키워드가 20개를 넘는 브랜드는 dryRun이어도 호출 전에 오류", async () => {
+  const server = fakeServer();
+  const api = fakeApi();
+  registerAnalysisTools(server, api, { cache: mkCache() });
+  const aliases = Array.from({ length: 20 }, (_, i) => `별칭${i}`);
+  await assert.rejects(
+    server.tools.brand_mentions.handler({ brands: [{ name: "A", aliases }], dryRun: true }),
+    /최대 20개/
+  );
+  assert.equal(api.calls.length, 0);
+});

@@ -61,22 +61,33 @@ export function rescale(
       throw new AnchorError(`기준 브랜드 "${anchor}"가 ${i + 1}번째 배치 결과에 없습니다.`);
     }
   });
+  // 배치가 하나면 환산이 필요 없으므로 기준 값이 0이어도 괜찮다
+  const multi = batches.length > 1;
   const refSum = sum(batches[0][anchor]);
-  if (!(refSum > 0)) {
+  if (multi && !(refSum > 0)) {
     throw new AnchorError(
       `기준 브랜드 "${anchor}"의 검색 지수가 기간 내내 0입니다. 다른 기준 브랜드를 지정하세요.`
     );
   }
 
+  const maxOf = (points: SeriesPoint[]) =>
+    points.reduce((m, p) => Math.max(m, p.ratio), 0);
   const scaled: ScaledSeries[] = [];
-  const push = (brand: string, points: SeriesPoint[]) => {
-    const max = points.reduce((m, p) => Math.max(m, p.ratio), 0);
-    scaled.push({ brand, points, lowPrecision: max < threshold });
+  const push = (brand: string, points: SeriesPoint[], batchWeak: boolean) => {
+    scaled.push({
+      brand,
+      points,
+      lowPrecision: maxOf(points) < threshold || batchWeak,
+    });
   };
 
-  push(anchor, batches[0][anchor]);
+  // 기준 브랜드의 지수가 그 배치 안에서 너무 작으면(API 반올림 잡음) 그 배치의 환산이 거칠다
+  const weak = (batch: BatchResult) => multi && maxOf(batch[anchor]) < threshold;
+
+  push(anchor, batches[0][anchor], false);
   batches.forEach((batch, i) => {
     let k = 1;
+    const batchWeak = weak(batch);
     if (i > 0) {
       const s = sum(batch[anchor]);
       if (!(s > 0)) {
@@ -90,16 +101,20 @@ export function rescale(
       if (brand === anchor) continue;
       push(
         brand,
-        points.map((p) => ({ period: p.period, ratio: p.ratio * k }))
+        points.map((p) => ({ period: p.period, ratio: p.ratio * k })),
+        batchWeak
       );
     }
   });
   return scaled;
 }
 
-/** 기간 합계가 중앙값인 브랜드 (짝수면 아래쪽 중앙값). */
+/** 합계가 0보다 큰 브랜드 중 기간 합계가 중앙값인 브랜드 (짝수면 아래쪽 중앙값). */
 export function pickMedianAnchor(scaled: ScaledSeries[]): string {
-  if (scaled.length === 0) throw new Error("브랜드 결과가 없습니다.");
-  const sorted = [...scaled].sort((a, b) => sum(a.points) - sum(b.points));
+  const withData = scaled.filter((s) => sum(s.points) > 0);
+  if (withData.length === 0) {
+    throw new AnchorError("데이터가 있는 브랜드가 없어 기준 브랜드를 고를 수 없습니다.");
+  }
+  const sorted = [...withData].sort((a, b) => sum(a.points) - sum(b.points));
   return sorted[Math.floor((sorted.length - 1) / 2)].brand;
 }

@@ -35,6 +35,15 @@ export function brandKeywords(brand: Brand): string[] {
   return out;
 }
 
+/** 호출 전에 브랜드 입력을 검증한다 (키워드 20개 초과, 이름이 빈 브랜드). */
+export function validateBrands(brands: Brand[]): void {
+  for (const b of brands) {
+    if (brandKeywords(b).length === 0) {
+      throw new Error("브랜드 이름이 비어 있습니다. name은 공백이 아닌 문자열이어야 합니다.");
+    }
+  }
+}
+
 function squash(s: string): string {
   return s.replace(/\s+/g, "").toLowerCase();
 }

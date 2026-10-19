@@ -97,3 +97,18 @@ test("시트 이름이 길거나 금지 문자가 있어도 31자 이내로 정�
   assert.ok(name.length <= 31);
   assert.equal(/[\[\]\*\?:\\\/]/.test(name), false);
 });
+
+test("백슬래시도 파일명과 시트 이름에서 치환된다", async () => {
+  assert.equal(sanitizeBaseName("a\\b"), "a_b");
+  const s = sanitizeBaseName("..\\..\\evil");
+  assert.equal(/[\\/]/.test(s) || s.includes(".."), false);
+  const dir = tmp();
+  const res = await exportSheets([{ name: "가\\나", columns: ["a"], rows: [["x"]] }], {
+    dir,
+    baseName: "x\\y",
+  });
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(res.xlsxPath);
+  assert.equal(wb.worksheets[0].name.includes("\\"), false);
+  assert.ok(inside(dir, res.xlsxPath));
+});
