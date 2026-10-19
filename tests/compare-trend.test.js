@@ -1,0 +1,198 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { compareBrandTrend } from "../dist/src/analysis/compare-trend.js";
+import { FileCache, CallCounter } from "../dist/src/cache/file-cache.js";
+import { BudgetExceededError } from "../dist/src/analysis/budget.js";
+
+const mkCache = () =>
+  new FileCache({ dir: fs.mkdtempSync(path.join(os.tmpdir(), "cmp-")), ttlMs: 1e9 });
+const brand = (name) => ({ name, aliases: [] });
+const brands = (...names) => names.map(brand);
+const periods = ["2025-01-01", "2025-02-01"];
+
+// 실제 검색량(world)을 요청 안 최댓값=100으로 정규화해 돌려주는 가짜 API
+function makeApi(world) {
+  const calls = [];
+  const respond = (groups) => {
+    const max = Math.max(...groups.flatMap((g) => world[g]));
+    return {
+      results: groups.map((g) => ({
+        title: g,
+        data: world[g].map((v, i) => ({
+          period: periods[i],
+          ratio: max ? (v / max) * 100 : 0,
+        })),
+      })),
+    };
+  };
+  return {
+    calls,
+    async searchTrend(req) {
+      const groups = req.keywordGroups.map((k) => k.groupName);
+      calls.push({ kind: "search", groups, req });
+      return respond(groups);
+    },
+    async datalabShoppingKeywords(req) {
+      const groups = req.keyword.map((k) => k.name);
+      calls.push({ kind: "shopping", groups, req });
+      return respond(groups);
+    },
+    async search() {
+      throw new Error("unused");
+    },
+  };
+}
+
+const base = { source: "search", startDate: "2025-01-01", endDate: "2025-02-28", timeUnit: "month" };
+const world6 = { A: [100, 100], B: [50, 50], C: [200, 200], D: [20, 20], E: [400, 400], F: [10, 10] };
+const ratios = (res, name) => res.series.find((s) => s.brand === name).points.map((p) => p.ratio);
+
+test("브랜드 6개는 기준 A를 고정해 2번 호출하고 한 척도로 환산한다", async () => {
+  const api = makeApi(world6);
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B", "C", "D", "E", "F") },
+    { api, cache: mkCache() }
+  );
+  assert.deepEqual(api.calls.map((c) => c.groups), [["A", "B", "C", "D", "E"], ["A", "F"]]);
+  assert.equal(res.callsUsed, 2);
+  assert.equal(res.anchor, "A");
+  assert.equal(res.reanchored, false);
+  assert.ok(Math.abs(ratios(res, "F")[0] - 2.5) < 1e-9);
+  assert.ok(Math.abs(ratios(res, "E")[0] - 100) < 1e-9);
+  assert.ok(res.limitations.length > 0);
+});
+
+test("키워드 묶음은 이름+별칭으로 전달된다", async () => {
+  const api = makeApi({ A: [1, 1] });
+  await compareBrandTrend(
+    { ...base, brands: [{ name: "A", aliases: ["에이", "A"] }] },
+    { api, cache: mkCache() }
+  );
+  assert.deepEqual(api.calls[0].req.keywordGroups, [{ groupName: "A", keywords: ["A", "에이"] }]);
+  assert.equal(api.calls.length, 1);
+});
+
+test("dryRun은 호출 없이 예상 호출 수만 돌려준다", async () => {
+  const api = makeApi(world6);
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B", "C", "D", "E", "F"), dryRun: true },
+    { api, cache: mkCache() }
+  );
+  assert.equal(api.calls.length, 0);
+  assert.equal(res.estimatedCalls, 2);
+  assert.equal(res.dryRun, true);
+});
+
+test("예상 호출이 maxCalls를 넘으면 BudgetExceededError, confirm이면 진행", async () => {
+  const input = { ...base, brands: brands("A", "B", "C", "D", "E", "F"), maxCalls: 1 };
+  await assert.rejects(
+    compareBrandTrend(input, { api: makeApi(world6), cache: mkCache() }),
+    BudgetExceededError
+  );
+  const res = await compareBrandTrend({ ...input, confirm: true }, { api: makeApi(world6), cache: mkCache() });
+  assert.equal(res.callsUsed, 2);
+});
+
+test("같은 입력을 다시 실행하면 캐시로 호출 0회", async () => {
+  const cache = mkCache();
+  const input = { ...base, brands: brands("A", "B", "C", "D", "E", "F") };
+  await compareBrandTrend(input, { api: makeApi(world6), cache });
+  const api2 = makeApi(world6);
+  const res = await compareBrandTrend(input, { api: api2, cache });
+  assert.equal(api2.calls.length, 0);
+  assert.equal(res.callsUsed, 0);
+  assert.equal(res.cacheHits, 2);
+});
+
+const world2 = { A: [10000, 10000], B: [5000, 5000], C: [100, 100], D: [1, 1], E: [50, 50], F: [2, 2] };
+
+test("정밀도 낮은 브랜드가 있고 배치가 2개 이상이면 중앙 브랜드로 한 번 재기준한다", async () => {
+  const api = makeApi(world2);
+  const res = await compareBrandTrend(
+    { ...base, brands: brands("A", "B", "C", "D", "E", "F") },
+    { api, cache: mkCache() }
+  );
+  assert.equal(res.reanchored, true);
+  assert.equal(res.anchor, "E");
+  assert.equal(api.calls.length, 4);
+  assert.deepEqual(api.calls[2].groups, ["E", "A", "B", "C", "F"]);
+  assert.deepEqual(api.calls[3].groups, ["E", "D"]);
+  assert.equal(res.callsUsed, 4);
+  assert.ok(res.warnings.some((w) => w.includes("D")));
+});
+
+test("anchor를 직접 지정하면 재기준하지 않고 경고만 낸다", async () => {
+  const api = makeApi(world2);
+  const res = await compareBrandTrend(
+    { ...base, anchor: "A", brands: brands("A", "B", "C", "D", "E", "F") },
+    { api, cache: mkCache() }
+  );
+  assert.equal(res.reanchored, false);
+  assert.equal(api.calls.length, 2);
+  assert.ok(res.warnings.some((w) => w.includes("D") && w.includes("정밀도")));
+});
+
+test("배치가 하나뿐이면 재기준하지 않는다", async () => {
+  const api = makeApi({ X: [10000, 10000], Y: [1, 1], Z: [100, 100] });
+  const res = await compareBrandTrend({ ...base, brands: brands("X", "Y", "Z") }, { api, cache: mkCache() });
+  assert.equal(res.reanchored, false);
+  assert.equal(api.calls.length, 1);
+  assert.ok(res.warnings.some((w) => w.includes("Y")));
+});
+
+test("쇼핑은 category가 필수이고 요청에 category와 keyword가 들어간다", async () => {
+  const api = makeApi({ A: [100, 100], B: [50, 50] });
+  await assert.rejects(
+    compareBrandTrend({ ...base, source: "shopping", brands: brands("A") }, { api, cache: mkCache() }),
+    /category/
+  );
+  await compareBrandTrend(
+    { ...base, source: "shopping", category: "CAT1", brands: [{ name: "A", aliases: ["에이"] }, brand("B")] },
+    { api, cache: mkCache() }
+  );
+  assert.equal(api.calls[0].kind, "shopping");
+  assert.equal(api.calls[0].req.category, "CAT1");
+  assert.deepEqual(api.calls[0].req.keyword[0], { name: "A", param: ["A", "에이"] });
+});
+
+test("쇼핑에 device를 주면 오류", async () => {
+  await assert.rejects(
+    compareBrandTrend(
+      { ...base, source: "shopping", category: "CAT1", device: "pc", brands: brands("A") },
+      { api: makeApi({ A: [1, 1] }), cache: mkCache() }
+    ),
+    /device/
+  );
+});
+
+test("쇼핑 결과가 전부 0인 브랜드는 오류 없이 데이터 없음 경고", async () => {
+  const api = makeApi({ A: [100, 100], B: [0, 0] });
+  const res = await compareBrandTrend(
+    { ...base, source: "shopping", category: "CAT1", brands: brands("A", "B") },
+    { api, cache: mkCache() }
+  );
+  assert.ok(res.warnings.some((w) => w.includes("B") && w.includes("데이터 없음")));
+});
+
+test("브랜드 이름이 중복되면 오류", async () => {
+  await assert.rejects(
+    compareBrandTrend({ ...base, brands: brands("A", "A") }, { api: makeApi({ A: [1, 1] }), cache: mkCache() }),
+    /중복/
+  );
+});
+
+test("결과에 환경변수의 비밀 값이 섞이지 않는다", async () => {
+  process.env.NCP_APIGW_API_KEY = "SECRET-KEY-123";
+  try {
+    const res = await compareBrandTrend(
+      { ...base, brands: brands("A", "B") },
+      { api: makeApi({ A: [100, 100], B: [50, 50] }), cache: mkCache(), counter: new CallCounter() }
+    );
+    assert.equal(JSON.stringify(res).includes("SECRET-KEY-123"), false);
+  } finally {
+    delete process.env.NCP_APIGW_API_KEY;
+  }
+});
