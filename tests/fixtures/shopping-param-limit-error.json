@@ -1,0 +1,4 @@
+{
+  "status": 400,
+  "message": "[NAVER API HUB] HTTP 400 — https://naverapihub.apigw.ntruss.com/shopping/v1/category/keywords\n{\"errMsg\":\"TypeError: .keyword[0].param -> should NOT have more than 1 items\",\"body\":\"{\\\"startDate\\\":\\\"2024-01-01\\\",\\\"endDate\\\":\\\"2026-09-30\\\",\\\"timeUnit\\\":\\\"month\\\",\\\"category\\\":\\\"50005951\\\",\\\"keyword\\\":[{\\\"name\\\":\\\"그래머인사이드\\\",\\\"param\\\":[\\\"그래머인사이드\\\",\\\"그래머 인사이드\\\"]}]}\"}"
+}

@@ -14,7 +14,8 @@
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "start": "node dist/src/index.js",
-    "test": "npm run build && node --test"
+    "test": "npm run build && node --test",
+    "test:live": "npm run build && node scripts/run-live-tests.mjs"
   },
   "engines": {
     "node": ">=18"

@@ -1,0 +1,29 @@
+{
+  "lastBuildDate": "Mon, 19 Oct 2026 09:08:51 +0900",
+  "total": 12349,
+  "start": 1,
+  "display": 3,
+  "items": [
+    {
+      "title": "<b>그래머인사이드</b> 샘플 제목 1",
+      "link": "https://example.invalid/post/0",
+      "description": "샘플 요약입니다. <b>그래머인사이드</b> 문법 교재 예시 문장 1.",
+      "cafename": "example",
+      "cafeurl": "https://example.invalid/cafe/0"
+    },
+    {
+      "title": "<b>그래머인사이드</b> 샘플 제목 2",
+      "link": "https://example.invalid/post/1",
+      "description": "샘플 요약입니다. <b>그래머인사이드</b> 문법 교재 예시 문장 2.",
+      "cafename": "example",
+      "cafeurl": "https://example.invalid/cafe/1"
+    },
+    {
+      "title": "<b>그래머인사이드</b> 샘플 제목 3",
+      "link": "https://example.invalid/post/2",
+      "description": "샘플 요약입니다. <b>그래머인사이드</b> 문법 교재 예시 문장 3.",
+      "cafename": "example",
+      "cafeurl": "https://example.invalid/cafe/2"
+    }
+  ]
+}

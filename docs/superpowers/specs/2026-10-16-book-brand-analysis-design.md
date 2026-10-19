@@ -149,3 +149,11 @@
 | 쇼핑 키워드 응답 | `results[].keyword` 에 키워드가 에코되고 `data`는 `[{period, ratio}]`. 이 분야에서 "그래머인사이드" 단독 호출은 `data`가 **빈 배열**이었다 (희소 데이터) → §9-5의 "데이터 없음/희소" 경고 경로가 실제로 쓰인다 |
 
 추가 확인 (Task 10, 종단 실행): 쇼핑 인사이트 키워드 그룹의 param은 **1개만** 허용된다 (2개 이상은 HTTP 400 .keyword[0].param -> should NOT have more than 1 items). 별칭을 쓸 수 없으므로 쇼핑 비교는 브랜드 이름 하나만 사용하고 (SHOPPING_KEYWORDS_PER_BRAND = 1) 버려진 별칭은 warnings로 알린다. 검색어 트렌드는 그룹당 키워드 20개까지 별칭 묶음이 가능하다.
+
+## 11. 2026-10-19 사용자 피드백 반영
+
+- 후보 품질: brand_mentions에 baselineQuery를 추가했다. 해당 카테고리 일반 검색 글에서 15% 이상 글에 나오는 단어는 일반 단어로 보고 후보에서 뺀다 (실측: 문법, 영어, 초등, 교재가 제거되고 경쟁 브랜드 후보는 유지). 브랜드명에 조사가 붙은 토큰도 제외한다.
+- 월별 언급은 최근 경향 용도: maxPostsPerBrand 기본값을 100으로 낮췄고, 소스별 comparableFrom과 월별 행의 partial 표시를 추가했다.
+- 쇼핑 별칭: 이름에 데이터가 없으면 별칭을 순서대로(최대 SHOPPING_ALIAS_TRIES=2) 시도한다. 호출 예산을 넘지 않는다.
+- 호출 한도: HUB에는 한도 조회 API/헤더가 없다 (문서와 실제 응답 헤더 확인). 콘솔 Usage Statistics만 있다. 실행 간 누적 카운터는 만들지 않았다.
+- 테스트: 실제 응답 샘플(tests/fixtures, scripts/record-fixtures.mjs)과 라이브 테스트(npm run test:live)를 추가했다.
