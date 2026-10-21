@@ -1,0 +1,40 @@
+[project]
+name = "ne-naver-api-mcp"
+version = "0.1.0"
+description = "NAVER API HUB MCP server: search, DataLab and book-brand analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "mcp>=2,<3",
+  "httpx>=0.27",
+  "openpyxl>=3.1",
+  "kiwipiepy>=0.18",
+  "tzdata; sys_platform == 'win32'",
+]
+
+[project.scripts]
+ne-naver-api-mcp = "ne_naver_api_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ne_naver_api_mcp"]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["live: calls the real NAVER API HUB (set NAVER_LIVE_TEST=1)"]
+
+[tool.uv]
+# 로컬 폴더로 설치(uvx --from .)할 때 소스가 바뀌면 다시 빌드한다 (기본값은 pyproject.toml 변경만 감지)
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "src/**/*.py" },
+  { file = "src/ne_naver_api_mcp/data/**" },
+]

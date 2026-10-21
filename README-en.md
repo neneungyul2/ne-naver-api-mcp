@@ -1,111 +1,86 @@
-<p align="center">
-  <img src="https://img1.kakaocdn.net/thumb/R0x200a.i/?fname=https%3A%2F%2Ft1.kakaocdn.net%2Fkomi%2Fupload-files%2Fmcp%2Fimages%2FnQzoe8vIxql0oK7Rwi239dxO2iYrxozLLQCIPRpVjmOjwGyPw0ZNUnNJfGkO1kAZmKf16eLZPAYi8NIS8XaBZJ.png" alt="Naver Search MCP Server Logo" width="128" />
-</p>
+# ne-naver-api-mcp
 
-# Naver Search MCP Server
+An MCP (Model Context Protocol) server for NAVER API HUB (Search and DataLab). Besides Naver web/blog/cafe search, search-trend and shopping-insight tools, it provides **analysis tools that compare search, shopping and mention trends of book-brand products** (`brand_compare_trend`, `brand_mentions`) with xlsx/CSV export.
 
-[![npm version](https://img.shields.io/npm/v/@isnow890/naver-search-mcp.svg)](https://www.npmjs.com/package/@isnow890/naver-search-mcp)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+> **Fork notice:** Based on [isnow890/naver-search-mcp](https://github.com/isnow890/naver-search-mcp) (MIT License). The original Node/TypeScript HUB calling logic, credential handling and shopping category data (`categories.json`) were ported to Python and analysis features were added. The original copyright notice and license are kept in [`LICENSE`](LICENSE). The Node version is kept at tag `node-v1`.
 
-A Model Context Protocol (MCP) server for Naver Search and DataLab APIs.  
-Supports web/news/blog searches, shopping insights, keyword trend analysis, and natural language shopping category lookups.
+## Tools (20)
 
-* [한국어 문서 (README.md)](README.md)
+| Group | Tools |
+|---|---|
+| Category | `find_category` — find shopping category codes from natural language |
+| Search | `search_webkr`, `search_blog`, `search_cafearticle`, `search_news`, `search_image`, `search_kin`, `search_encyc`, `search_local` |
+| DataLab | `datalab_search`, `datalab_shopping_category`, `datalab_shopping_by_device`, `datalab_shopping_by_gender`, `datalab_shopping_by_age`, `datalab_shopping_keywords`, `datalab_shopping_keyword_by_device`, `datalab_shopping_keyword_by_gender`, `datalab_shopping_keyword_by_age` |
+| Analysis | `brand_compare_trend`, `brand_mentions` |
 
----
+Date arguments accept `"today"` (today in Korea Standard Time).
 
-## Quick Start
+> **APIs must be added to your Application in NAVER API HUB.** As of 2026-10-21, verified: `search_webkr`, `search_blog`, `search_cafearticle` and all DataLab tools. `search_news`, `search_image`, `search_kin`, `search_encyc` and `search_local` exist in the HUB gateway but were not enabled for the Application used for verification (HTTP 401, "the requested API is not activated for this Application"); their response shapes are **unverified**. Add those APIs to your Application in the NCP console.
 
-Add the following to your MCP client configuration file (e.g., `claude_desktop_config.json`, `mcp.json`) in tools like Claude Desktop, Cursor, Claude Code, or Cline:
+## Install
 
-> **Notice:** The zero-setup [Kakao PlayMCP](https://playmcp.kakao.com/mcp/154) service has been discontinued. Please provide your own API credentials in your local environment.
+Requires [uv](https://docs.astral.sh/uv/) and NAVER API HUB keys (`NCP_APIGW_API_KEY_ID`, `NCP_APIGW_API_KEY`).
 
-### 1. NAVER API HUB (Recommended / New Users)
-Using keys issued from [NAVER API HUB](https://www.ncloud.com/product/applicationService/naverApiHub) on NAVER Cloud Platform (NCP):
+**Claude Code**
+
+```
+claude mcp add ne-naver-api -s user \
+  -e NCP_APIGW_API_KEY_ID=YOUR_ID -e NCP_APIGW_API_KEY=YOUR_KEY \
+  -e NAVER_EXPORT_DIR=/path/to/naver-exports \
+  -- uvx --from git+https://github.com/neneungyul2/ne-naver-api-mcp ne-naver-api-mcp
+```
+
+**Claude Desktop** (`claude_desktop_config.json`)
 
 ```json
 {
   "mcpServers": {
-    "naver-search": {
-      "command": "npx",
-      "args": ["-y", "@isnow890/naver-search-mcp"],
+    "ne-naver-api": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/neneungyul2/ne-naver-api-mcp", "ne-naver-api-mcp"],
       "env": {
-        "NCP_APIGW_API_KEY_ID": "your_client_id",
-        "NCP_APIGW_API_KEY": "your_client_secret"
+        "NCP_APIGW_API_KEY_ID": "YOUR_ID",
+        "NCP_APIGW_API_KEY": "YOUR_KEY",
+        "NAVER_EXPORT_DIR": "/path/to/naver-exports"
       }
     }
   }
 }
 ```
 
-### 2. Naver Developers Center (Existing Key Holders)
-Using legacy keys issued from the Naver Developers Center (`openapi.naver.com`) (Supported until 2027-06-30):
+Installing from the GitHub URL works only once `main` of this repository is the Python version; before that use a local folder: `uvx --from /path/to/ne-naver-api-mcp-py ne-naver-api-mcp`. Pin a commit or tag (`...ne-naver-api-mcp@<commit>`) when distributing.
 
-```json
-{
-  "mcpServers": {
-    "naver-search": {
-      "command": "npx",
-      "args": ["-y", "@isnow890/naver-search-mcp"],
-      "env": {
-        "NAVER_CLIENT_ID": "your_client_id",
-        "NAVER_CLIENT_SECRET": "your_client_secret"
-      }
-    }
-  }
-}
-```
-
-### 3. OpenClaw (ClawHub)
-If you use OpenClaw, you can install it as a ClawHub skill:
-
-```bash
-openclaw skills install naver-search-mcp
-```
-
-> **Note:** Configure **one** credential pair in your OpenClaw environment — either the NAVER API HUB pair (`NCP_APIGW_API_KEY_ID` / `NCP_APIGW_API_KEY`) or the Developers Center pair (`NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET`).
-
----
-
-## API Credentials Guide
-
-The server automatically detects the target platform based on the environment variables provided. (Set **one pair only**):
-
-| Platform | Environment Variables | Note |
+| Variable | Meaning | Default |
 |---|---|---|
-| **NAVER API HUB (Recommended)** | `NCP_APIGW_API_KEY_ID`<br>`NCP_APIGW_API_KEY` | • Visit [NAVER Cloud Platform Console](https://www.ncloud.com)<br>• Go to Menu > All Services > Application Services > **NAVER API HUB**<br>• Register Application and check 'Authentication Info' |
-| **Naver Developers (Legacy)** | `NAVER_CLIENT_ID`<br>`NAVER_CLIENT_SECRET` | • New applications closed as of 2026-07-31<br>• Existing keys continue to work until 2027-06-30 |
+| `NCP_APIGW_API_KEY_ID`, `NCP_APIGW_API_KEY` | NAVER API HUB keys (required) | — |
+| `NAVER_EXPORT_DIR` | Folder for xlsx/CSV exports (recommended: the server's working directory is chosen by the MCP client) | `<cwd>/exports` |
+| `NAVER_CACHE_DIR` | API response cache folder | `<home>/.naver-search-mcp/cache` |
+| `NAVER_CACHE_TTL_HOURS` | Cache lifetime in hours | `24` |
+| `NAVER_TOOLS_ALLOW` | Comma-separated tool names to expose (empty = all) | all |
 
----
+Environment variables win; missing keys are read from a `.env` file in the working directory. Without keys the server refuses to start (message on stderr, exit code 1). Naver Developers Center (legacy) keys are not supported.
 
-## Available Tools
+## Analysis tools
 
-### 1. Category Search
-- **`find_category`**: Search shopping categories in natural language to find category IDs for shopping insight queries.
+A brand is `{ "name": "...", "aliases": ["..."] }`. Every result carries `limitations`.
 
-### 2. Search Tools
-- **`search_webkr`**: Search Naver web documents
-- **`search_news`**: Search Naver news
-- **`search_blog`**: Search Naver blogs
-- **`search_cafearticle`**: Search Naver cafe posts
-- **`search_image`**: Search Naver images
-- **`search_kin`**: Search KnowledgeiN (Q&A)
-- **`search_encyc`**: Search encyclopedia entries
-- **`search_local`**: Search local places
+- **`brand_compare_trend`** — compares search-trend (`source: "search"`) or shopping-click (`source: "shopping"`, needs `category`) series on **one relative scale**. DataLab ratios are relative per request (max = 100), so an anchor brand is put in every call and batches are rescaled by the anchor's sums. Values are not real counts and may exceed 100. Shopping insight accepts one keyword per group, so the name is queried first and aliases are tried (max 2) only when the name has no data.
+- **`brand_mentions`** — collects the most recent blog/cafe/web posts that mention the brands (default 100 per query), counts them per month, and returns co-mentioned **candidate terms** with examples (Korean morphological analysis via kiwipiepy; judge yourself whether a candidate is a brand). The search API has no date filter, so check `comparableFrom` and the per-month `partial` flag. Cafe/web results have no dates and are excluded from monthly counts. `baselineQuery` (e.g. a generic category query) removes words common in generic results.
+- Common arguments: `dryRun` (estimate calls only), `maxCalls` (default 30), `confirm`, `exportAs` (writes `<name>.xlsx` and one CSV per sheet).
 
-### 3. DataLab Trend Analysis
-Supports the `"today"` keyword for date parameters (e.g., `endDate: "today"`).
-- **`datalab_search`**: Analyze search term trends
-- **`datalab_shopping_category`**: Analyze shopping category click trends
-- **`datalab_shopping_by_device`**: Analyze shopping trends by device (PC/Mobile)
-- **`datalab_shopping_by_gender`**: Analyze shopping trends by gender
-- **`datalab_shopping_by_age`**: Analyze shopping trends by age group
-- **`datalab_shopping_keywords`**: Analyze shopping keyword trends
-- **`datalab_shopping_keyword_by_device`**: Analyze keyword trends by device
-- **`datalab_shopping_keyword_by_gender`**: Analyze keyword trends by gender
-- **`datalab_shopping_keyword_by_age`**: Analyze keyword trends by age group
+NAVER API HUB has no API or response header for remaining quota; check the console (NAVER API HUB > Usage Statistics). This server only counts calls within one run and caches identical requests.
 
----
+## Development
+
+```
+uv sync
+uv run pytest                                # offline tests; live tests are skipped
+NAVER_LIVE_TEST=1 uv run pytest tests/live   # real API checks (needs keys, ~23 calls)
+uv run python scripts/record_fixtures.py     # re-record test fixtures (6 calls)
+```
+
+Test mapping from the Node implementation: [`docs/superpowers/parity.md`](docs/superpowers/parity.md). Design documents: `docs/superpowers/specs/`.
 
 ## License
-MIT License
+
+MIT License — see [`LICENSE`](LICENSE) for the original copyright notice.
