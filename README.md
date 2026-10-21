@@ -1,6 +1,6 @@
 # ne-naver-api-mcp
 
-NAVER API HUB(검색, 데이터랩)를 쓰는 MCP(Model Context Protocol) 서버입니다. 네이버 웹문서/블로그/카페 검색, 검색어 트렌드, 쇼핑 인사이트와 함께, **도서 제품 브랜드의 검색·쇼핑·언급 추이를 비교하는 분석 도구**(`brand_compare_trend`, `brand_mentions`)와 엑셀/CSV 내보내기를 제공합니다.
+NAVER API HUB(검색, 데이터랩)를 쓰는 MCP(Model Context Protocol) 서버입니다. 네이버 검색광고 API 키를 추가하면 Data Lab 상대 지수를 절대 검색량으로 역산하는 도구(`estimate_search_volume`)도 켜집니다. 네이버 웹문서/블로그/카페 검색, 검색어 트렌드, 쇼핑 인사이트와 함께, **도서 제품 브랜드의 검색·쇼핑·언급 추이를 비교하는 분석 도구**(`brand_compare_trend`, `brand_mentions`)와 엑셀/CSV 내보내기를 제공합니다.
 
 > **포크 안내:** 이 프로젝트는 [isnow890/naver-search-mcp](https://github.com/isnow890/naver-search-mcp)(MIT License)를 바탕으로 합니다. 원본(Node/TypeScript)의 HUB 호출 방식, 인증 처리, 쇼핑 분야 코드 데이터(`categories.json`)를 파이썬으로 옮기고 분석 기능을 추가했습니다. 원본의 저작권 고지와 라이선스는 [`LICENSE`](LICENSE)에 그대로 유지됩니다. Node 버전은 태그 `node-v1`에 남아 있습니다.
 
@@ -61,6 +61,7 @@ claude mcp add ne-naver-api -s user ^
 | 이름 | 설명 | 기본값 |
 |---|---|---|
 | `NCP_APIGW_API_KEY_ID`, `NCP_APIGW_API_KEY` | NAVER API HUB 키 (필수) | — |
+| `NAVER_SEARCHAD_CUSTOMER_ID`, `NAVER_SEARCHAD_ACCESS_LICENSE`, `NAVER_SEARCHAD_SECRET_KEY` | 네이버 검색광고 API 키 (선택). 세 값이 모두 있으면 검색량 도구 2개가 켜지고, 모두 비면 꺼집니다. 일부만 있으면 서버가 시작하지 않습니다 | — |
 | `NAVER_EXPORT_DIR` | 엑셀/CSV 저장 폴더. **지정을 권장합니다**(MCP 클라이언트가 서버를 실행하는 작업 폴더를 알 수 없어서) | `<작업 폴더>/exports` |
 | `NAVER_CACHE_DIR` | API 응답 캐시 폴더 | `<홈>/.naver-search-mcp/cache` |
 | `NAVER_CACHE_TTL_HOURS` | 캐시 유지 시간(시간) | `24` |
@@ -88,6 +89,27 @@ claude mcp add ne-naver-api -s user ^
 - 카페글과 웹문서는 날짜가 없어 월별 집계에서 제외됩니다(건수와 후보 분석에는 포함).
 - `baselineQuery`(예: `"중등 영어 문법 교재"`)를 주면 그 일반 검색 결과에서 흔한 단어(문법, 영어 등)를 후보에서 뺍니다.
 - 후보 단어는 한국어 형태소 분석(kiwipiepy)으로 뽑으며, 조사는 떼어 내고 브랜드 이름과 별칭은 쪼개지지 않게 처리합니다. 후보가 **브랜드인지는 직접 판단**하세요.
+
+## 검색량 역산 (검색광고 API, 선택)
+
+[네이버 검색광고 API](https://naver.github.io/searchad-apidoc/)의 키워드도구는 키워드별 **최근 한 달 PC/모바일 검색수(절대값)**를 알려 줍니다. 키(`NAVER_SEARCHAD_*`)를 설정하면 아래 도구 2개가 추가됩니다(총 22개). 키 발급: 검색광고 > 도구 > API 사용 관리.
+
+### `searchad_keyword_volume`
+
+키워드 목록의 월 검색수(PC, 모바일, 합계)와 경쟁정도를 조회합니다. `includeRelated: true`이면 연관 키워드를 검색수 많은 순으로 함께 돌려줍니다. 검색광고는 띄어쓰기를 구분하지 않아 공백을 제거해 조회하며, **10 미만은 숫자 대신 `< 10`으로만 알려 주므로** 값은 `null`, `lowVolume: true`로 표시합니다(`totalUpperBound`는 가려진 쪽을 9로 본 상한).
+
+### `estimate_search_volume`
+
+브랜드별 **월별 절대 검색량을 추정**합니다.
+
+1. Data Lab 검색어 트렌드를 **일 단위**로 받아 한 척도로 맞춥니다(`brand_compare_trend`와 같은 기준 브랜드 환산). 단위를 섞으면 "요청 최댓값 100"의 기준이 달라지므로 일 단위로 통일합니다.
+2. 검색광고의 월 검색수(브랜드의 이름과 별칭 합, 공백만 다른 키워드는 한 번만)를 **어제까지 30일**의 지수 합에 맞춰 환산 계수 `k = 월 검색수 / 최근 30일 지수 합`을 구합니다.
+3. 모든 날의 지수에 `k`를 곱해 월로 합산합니다. 일부 날짜만 있는 달은 `partial: true`입니다.
+
+- 브랜드마다 `k`를 따로 구하고, 브랜드 간 `k`가 2배 넘게 다르면 경고합니다(두 지표의 집계 정의 차이이거나 작은 브랜드의 지수가 거칠다는 신호).
+- 검색광고가 10 미만으로만 알려 주거나 조회되지 않은 브랜드는 다른 브랜드의 공통 `k`로 추정하고 경고합니다(오차 큼). 쓸 수 있는 브랜드가 하나도 없으면 오류입니다.
+- 종료일은 어제까지 반영됩니다. 호출은 Data Lab 일 단위 트렌드 + 검색광고 호출(키워드 5개당 1회)이며 `dryRun`/`maxCalls`/`confirm`/`exportAs`는 아래 공통 인자와 같습니다.
+- **추정값은 대략적인 규모로만 쓰세요.** 두 서비스의 집계 정의가 다르고 검색광고의 "최근 한 달"이 정확히 어느 30일인지 문서에 명시되어 있지 않아 어제까지 30일로 가정했습니다. 실제 키로 같은 키워드의 `k`가 안정적인지 확인하는 라이브 테스트는 `tests/live/test_searchad.py`입니다.
 
 ### 공통 인자와 호출 한도
 

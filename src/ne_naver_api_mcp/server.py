@@ -8,7 +8,13 @@ from mcp.server.mcpserver import MCPServer
 
 from .cache import FileCache
 from .client import NaverApiClient
-from .config import CredentialsError, load_dotenv_if_present, resolve_credentials
+from .config import (
+    CredentialsError,
+    load_dotenv_if_present,
+    resolve_credentials,
+    resolve_searchad_credentials,
+)
+from .searchad import SearchAdClient
 from .tool_filter import ToolRegistrar, parse_tool_allow_list
 from .tools import register_all_tools
 
@@ -20,8 +26,9 @@ def create_server(
     *,
     allow: set[str] | None = None,
     cache: FileCache | None = None,
+    searchad: SearchAdClient | None = None,
 ) -> MCPServer:
-    """서버를 만들고 도구를 등록한다. 종료할 때 client를 닫는다."""
+    """서버를 만들고 도구를 등록한다. 종료할 때 client(와 searchad)를 닫는다."""
 
     @asynccontextmanager
     async def lifespan(_server: MCPServer) -> AsyncIterator[None]:
@@ -30,10 +37,12 @@ def create_server(
         finally:
             if client is not None:
                 await client.aclose()
+            if searchad is not None:
+                await searchad.aclose()
 
     server = MCPServer(SERVER_NAME, lifespan=lifespan)
     registrar = ToolRegistrar(server, allow)
-    register_all_tools(registrar, client, cache)
+    register_all_tools(registrar, client, cache, searchad)
     registrar.warn_unknown()
     return server
 
@@ -49,8 +58,14 @@ def main() -> None:
     except CredentialsError as e:
         print(f"[오류] {e}", file=sys.stderr)
         sys.exit(1)
+    try:
+        searchad_credentials = resolve_searchad_credentials(os.environ)
+    except CredentialsError as e:
+        print(f"[오류] {e}", file=sys.stderr)
+        sys.exit(1)
     allow = parse_tool_allow_list(os.environ.get("NAVER_TOOLS_ALLOW"))
-    create_server(NaverApiClient(credentials), allow=allow).run()
+    searchad = SearchAdClient(searchad_credentials) if searchad_credentials else None
+    create_server(NaverApiClient(credentials), allow=allow, searchad=searchad).run()
 
 
 if __name__ == "__main__":

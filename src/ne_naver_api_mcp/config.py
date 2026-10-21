@@ -54,6 +54,41 @@ def resolve_credentials(env: Mapping[str, str | None]) -> Credentials:
     raise CredentialsError(f"자격증명이 설정되지 않았습니다.{SETUP_GUIDE}")
 
 
+SEARCHAD_CUSTOMER_ID = "NAVER_SEARCHAD_CUSTOMER_ID"
+SEARCHAD_ACCESS_LICENSE = "NAVER_SEARCHAD_ACCESS_LICENSE"
+SEARCHAD_SECRET_KEY = "NAVER_SEARCHAD_SECRET_KEY"
+SEARCHAD_NAMES = (SEARCHAD_CUSTOMER_ID, SEARCHAD_ACCESS_LICENSE, SEARCHAD_SECRET_KEY)
+
+
+@dataclass(frozen=True)
+class SearchAdCredentials:
+    customer_id: str
+    access_license: str
+    secret_key: str
+
+
+def resolve_searchad_credentials(env: Mapping[str, str | None]) -> SearchAdCredentials | None:
+    """검색광고 API 키. 하나도 없으면 None(기능 비활성), 일부만 있으면 오류.
+
+    검색광고 도구는 선택 기능이라 키가 없다고 서버를 막지 않는다.
+    """
+    values = {name: _clean(env.get(name)) for name in SEARCHAD_NAMES}
+    if not any(values.values()):
+        return None
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        raise CredentialsError(
+            "네이버 검색광고 API 자격증명이 불완전합니다.\n"
+            + "\n".join(f"  {n}: {'missing' if n in missing else 'provided'}" for n in SEARCHAD_NAMES)
+            + "\n세 값을 함께 설정하거나, 쓰지 않으면 모두 비워 두세요."
+        )
+    return SearchAdCredentials(
+        values[SEARCHAD_CUSTOMER_ID],  # type: ignore[arg-type]
+        values[SEARCHAD_ACCESS_LICENSE],  # type: ignore[arg-type]
+        values[SEARCHAD_SECRET_KEY],  # type: ignore[arg-type]
+    )
+
+
 def _unquote(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
         return value[1:-1]
