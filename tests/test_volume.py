@@ -19,7 +19,7 @@ from ne_naver_api_mcp.analysis.volume import (
 )
 from ne_naver_api_mcp.cache import CallCounter, FileCache
 
-TODAY = "2026-10-21"  # 환산 기준 구간 = 2026-09-21 ~ 2026-10-20
+TODAY = "2026-10-21"  # 환산 기준 구간 = 2026-09-23 ~ 2026-10-20 (28일)
 
 
 def days(start: str, end: str):
@@ -122,9 +122,9 @@ def test_parse_keyword_list_and_group_dedupes_spacing_variants():
     assert g.missing == ["grammarinside"]
 
 
-def test_window_bounds_are_30_days_ending_yesterday():
-    assert window_bounds("2026-10-21") == ("2026-09-21", "2026-10-20")
-    assert (date.fromisoformat(W1) - date.fromisoformat(W0)).days == 29
+def test_window_bounds_are_28_days_ending_yesterday():
+    assert window_bounds("2026-10-21") == ("2026-09-23", "2026-10-20")
+    assert (date.fromisoformat(W1) - date.fromisoformat(W0)).days == 27
 
 
 def test_calibration_factor_guards():
@@ -140,6 +140,7 @@ def test_monthly_estimates_marks_partial_months():
     rows = {r["month"]: r for r in monthly_estimates(pts, 10, "2026-08-01", "2026-09-30")}
     assert rows["2026-08"]["partial"] and rows["2026-08"]["estimated"] == 220
     assert not rows["2026-09"]["partial"] and rows["2026-09"]["estimated"] == 600
+    assert rows["2026-08"]["fullMonth"] and rows["2026-09"]["fullMonth"]
 
 
 async def test_recovers_true_monthly_volume_for_two_brands(cache):
@@ -215,6 +216,7 @@ async def test_end_date_is_clamped_to_yesterday_and_future_start_rejected(cache)
     months = result.estimates[0].monthly
     assert [r["month"] for r in months] == ["2026-10"] and months[0]["partial"] is False
     assert months[0]["expectedDays"] == 20  # 10월 1~20일
+    assert months[0]["fullMonth"] is False  # 달 전체가 아니므로 월 합계로 비교하면 안 된다
     with pytest.raises(ValueError, match="조회 구간"):
         await run([Brand("AA")], trend, ad, cache, start_date="2026-10-25", end_date="2026-10-30")
 

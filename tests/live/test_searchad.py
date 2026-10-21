@@ -7,10 +7,11 @@
 - /keywordstool 응답이 keywordList / relKeyword / monthlyPcQcCnt / monthlyMobileQcCnt 형식이다.
 - 입력 키워드(공백 제거)가 relKeyword로 그대로 돌아온다.
 - 10 미만이 문자열로 오는 형식 ("< 10").
-- 같은 키워드에 대해 Data Lab 일 지수 합(어제까지 30일)과 검색광고 월 검색수의 비(k)가 키워드별로
+- 같은 키워드에 대해 Data Lab 일 지수 합(어제까지 28일)과 검색광고 월 검색수의 비(k)가 키워드별로
   비슷한 범위인가 (estimate_search_volume의 전제). 값은 -s로 출력해 사람이 본다.
 """
 import os
+import sys
 
 import pytest
 
@@ -22,6 +23,9 @@ from ne_naver_api_mcp.config import load_dotenv_if_present, resolve_credentials,
 from ne_naver_api_mcp.searchad import SearchAdClient
 
 pytestmark = pytest.mark.live
+
+if hasattr(sys.stdout, "reconfigure"):  # cp949 콘솔에서 한글·특수문자 경고 출력이 실패하지 않게
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 KEYWORDS = ["영어문법", "토익", "수능영어", "초등영어"]
 

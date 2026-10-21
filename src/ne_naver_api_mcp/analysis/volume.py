@@ -1,8 +1,8 @@
 """검색광고 키워드 검색수(절대값)로 Data Lab 상대 지수를 환산해 월별 검색량을 추정한다.
 
 Data Lab은 요청마다 최댓값이 100인 상대 지수이고, 검색광고 keywordstool은 최근 한 달의 PC/모바일
-검색수(절대값)다. 일 단위 지수를 한 척도로 모은 뒤 *최근 30일 지수 합*을 검색광고의 월 검색수에
-맞춰 계수 k = (월 검색수) / (최근 30일 지수 합)를 구하고, 모든 일의 지수에 k를 곱해 월로 합산한다.
+검색수(절대값)다. 일 단위 지수를 한 척도로 모은 뒤 *최근 28일 지수 합*을 검색광고의 월 검색수에
+맞춰 계수 k = (월 검색수) / (최근 28일 지수 합)를 구하고, 모든 일의 지수에 k를 곱해 월로 합산한다.
 단위(일/월)를 섞으면 "최댓값 100"의 기준이 달라지므로 일 단위로 통일한다.
 """
 import calendar
@@ -19,7 +19,11 @@ from .budget import DEFAULT_MAX_CALLS, check_budget
 from .compare_trend import SEARCH_SLOTS_PER_CALL, AnalysisApi, CompareInput, compare_brand_trend
 from .rescale import SeriesPoint, estimate_trend_calls
 
-WINDOW_DAYS = 30  # 검색광고의 "최근 한 달"에 맞추는 기준 구간(어제까지 30일)
+# 검색광고의 "최근 한 달"에 맞추는 기준 구간(어제까지 28일). 문서에 구간이 명시되어 있지 않아 실제 키로
+# 후보 구간(길이 7~35일, 달력상 지난달, 끝점을 며칠 앞당긴 구간)을 비교했다: 끝점은 어제가 가장 일관됐고
+# 길이는 24~28일에서 키워드 간 환산 계수 편차가 가장 작았다 (2026-10-21, 키워드 7개, 변동계수 0.031~0.035,
+# 30일은 0.052). 한 시점의 약한 근거이므로 tests/live/test_searchad.py로 다시 확인할 수 있다.
+WINDOW_DAYS = 28
 LOW_COUNT_UPPER = 9  # 검색광고는 10 미만을 "< 10"으로만 알려 준다
 K_SPREAD_WARN = 2.0  # 브랜드 간 환산 계수가 이 배수 넘게 다르면 경고
 
@@ -178,6 +182,8 @@ def monthly_estimates(
                 "days": days.get(key, 0),
                 "expectedDays": expected,
                 "partial": days.get(key, 0) < expected,
+                # 조회 구간이 그 달의 일부만 덮으면 False (예: 오늘이 속한 달은 어제까지만 있다)
+                "fullMonth": expected == calendar.monthrange(year, month)[1],
             }
         )
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)

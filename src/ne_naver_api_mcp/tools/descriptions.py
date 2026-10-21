@@ -62,9 +62,9 @@ DESCRIPTIONS: dict[str, str] = {
         "📝 Collect blog/cafe/web posts that mention book brands, count them per month (approximate sample), and list co-mentioned candidate terms with examples. Candidate terms are not verified brands — judge them yourself. Supports dryRun, call budget and xlsx/csv export. (도서 브랜드를 언급한 블로그/카페/웹 글을 수집해 월별 집계와 동시 언급 후보 단어를 제공)"
     ),
     "searchad_keyword_volume": (
-        "🔎 Look up the monthly (last 30 days) PC/mobile search counts of keywords from the NAVER Search Ad keyword tool, optionally with related keywords sorted by volume. Counts under 10 come back as null with lowVolume=true. Spaces are ignored. Requires NAVER_SEARCHAD_* keys. (네이버 검색광고 키워드도구로 키워드의 최근 한 달 PC/모바일 검색수와 연관 키워드를 조회. 10 미만은 null)"
+        "🔎 Look up the monthly (most recent month) PC/mobile search counts of keywords from the NAVER Search Ad keyword tool, optionally with related keywords sorted by volume. Counts under 10 come back as null with lowVolume=true. Spaces are ignored. Requires NAVER_SEARCHAD_* keys. (네이버 검색광고 키워드도구로 키워드의 최근 한 달 PC/모바일 검색수와 연관 키워드를 조회. 10 미만은 null)"
     ),
     "estimate_search_volume": (
-        "🧮 Estimate absolute monthly search volume per book brand by scaling NAVER DataLab daily relative indexes to the Search Ad monthly count (calibration on the last 30 days, then summed per month). Approximate: the two sources define counts differently, so read the calibration factors and warnings. Supports dryRun, call budget and xlsx/csv export. Requires NAVER_SEARCHAD_* keys. (데이터랩 상대 지수를 검색광고 월 검색수에 맞춰 월별 절대 검색량으로 역산. 대략적인 추정치)"
+        "🧮 Estimate absolute monthly search volume per book brand by scaling NAVER DataLab daily relative indexes to the Search Ad monthly count (calibration on the last 28 days, then summed per month). Approximate: the two sources define counts differently, so read the calibration factors and warnings. Supports dryRun, call budget and xlsx/csv export. Requires NAVER_SEARCHAD_* keys. (데이터랩 상대 지수를 검색광고 월 검색수에 맞춰 월별 절대 검색량으로 역산. 대략적인 추정치)"
     ),
 }
